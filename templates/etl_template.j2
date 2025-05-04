@@ -1,0 +1,204 @@
+from datetime import timedelta
+import json
+import os
+from sys import argv
+from typing import List, Dict, Any
+import pandas as pd
+import glob
+
+# Importación de funciones ETL genéricas personalizadas
+import funciones_genericas_etl as generic  # type: ignore
+
+# ========================
+# Configuración global
+# ========================
+
+DIRECTORIO_DEFECTO = os.path.dirname(os.path.abspath(__file__))
+
+# ========================
+# Funciones utilitarias
+# ========================
+
+def leer_archivos(directorio: str, prefijo: str, extension: str) -> List[str]:
+    try:
+        archivos = glob.glob(f"{directorio}/*{prefijo}*{extension}")
+        return archivos
+    except Exception as e:
+        print(f"[Error] No se pudieron listar archivos en {directorio}: {e}")
+        return []
+
+def cargar_datos_en_dataframe(directorio: str, archivos: List[str], extension: str, skiprows: int) -> pd.DataFrame:
+    dataframes = []
+    for archivo in archivos:
+        ruta_completa = os.path.join(directorio, archivo)
+        try:
+            if extension == ".xlsx":
+                df = pd.read_excel(ruta_completa, engine='openpyxl', skiprows=skiprows)
+            elif extension == ".xls":
+                df = pd.read_excel(ruta_completa, engine='xlrd', skiprows=skiprows)
+            else:
+                df = pd.read_csv(ruta_completa, sep="{{ config.separator }}", encoding="{{ config.encoding }}")
+            dataframes.append(df)
+            print(f"[OK] Archivo cargado: {archivo}")
+        except Exception as e:
+            print(f"[Error] Falló la carga del archivo {archivo}: {e}")
+    if not dataframes:
+        print("[Advertencia] No se cargó ningún archivo correctamente.")
+        return pd.DataFrame()
+    return pd.concat(dataframes, ignore_index=True)
+
+def validar_columnas_archivo_original(df, columnas_requeridas: List[str]):
+    faltantes = [col for col in columnas_requeridas if col not in df.columns]
+    if faltantes:
+        raise ValueError(f"[Error] El archivo original no contiene las siguientes columnas requeridas: {', '.join(faltantes)}")
+
+def agregar_columnas_faltantes(df, kpi: str, definiciones, default_data_type_id="16", chain_id_value=None):
+    if "item_nbr" in df.columns and "upc" not in df.columns:
+        df["upc"] = df["item_nbr"]
+    elif "upc" in df.columns and "item_nbr" not in df.columns:
+        df["item_nbr"] = df["upc"]
+    for def_col in definiciones.get(kpi, []):
+        col = def_col["col"]
+        if col not in df.columns:
+            if col == "data_type_id":
+                df[col] = default_data_type_id
+            elif col == "chain_id":
+                df[col] = chain_id_value
+            elif not def_col["nullable"]:
+                df[col] = None
+    return df
+
+def preparar_df_kpi(kpi_config, definiciones, chain_id):
+    archivos = leer_archivos(DIRECTORIO_DEFECTO, kpi_config["file_prefix"], kpi_config["extension"])
+    if not archivos:
+        raise FileNotFoundError(f"No se encontraron archivos para el KPI '{kpi_config['kpi']}'.")
+
+    df = cargar_datos_en_dataframe(DIRECTORIO_DEFECTO, archivos, kpi_config["extension"], kpi_config["skiprows"])
+    if df.empty:
+        raise ValueError(f"El DataFrame para '{kpi_config['kpi']}' está vacío.")
+
+    validar_columnas_archivo_original(df, kpi_config["original_required_columns"])
+    df.rename(columns=kpi_config["rename_map"], inplace=True)
+    return df
+
+def finalizar_etl_kpi(df, kpi: str, date: int, chain_id: int, definiciones, default_data_type_id: str = "16"):
+    df = agregar_columnas_faltantes(df, kpi, definiciones, default_data_type_id, chain_id)
+    if "date_id" in df.columns:
+        df["date_id"] = df["date_id"].apply(lambda x: generic.format_date(x, "%Y%m%d"))
+
+    columnas_ordenadas = [col["col"] for col in sorted(definiciones.get(kpi, []), key=lambda x: x["order"])]
+    columnas_salida = [col for col in columnas_ordenadas if col in df.columns]
+
+    df_kpi = df[columnas_salida].copy()
+    output_file = f"{kpi}_{date}.txt"
+    df_kpi.to_csv(output_file, sep="\t", index=False)
+    print(f"[OK] Archivo generado: {output_file} con {{ '{ len(df_kpi) }' }} registros")
+
+# ========================
+# Procesamiento por KPI
+# ========================
+
+def procesar_sellout(kpi_config, chain_id, date, definiciones, data_type_id):
+    try:
+        df = preparar_df_kpi(kpi_config, definiciones, chain_id)
+
+        # Aquí va cualquier lógica específica de 'sellout'
+
+        finalizar_etl_kpi(df, kpi_config["kpi"], date, chain_id, definiciones, data_type_id)
+    except Exception as e:
+        print(f"[Error en KPI 'sellout']: {e}")
+
+def procesar_stock_oh(kpi_config, chain_id, date, definiciones, data_type_id):
+    try:
+        df = preparar_df_kpi(kpi_config, definiciones, chain_id)
+
+        # Aquí va cualquier lógica específica de 'stock_oh'
+
+        finalizar_etl_kpi(df, kpi_config["kpi"], date, chain_id, definiciones, data_type_id)
+    except Exception as e:
+        print(f"[Error en KPI 'stock_oh']: {e}")
+
+def procesar_stock_tuberia(kpi_config, chain_id, date, definiciones, data_type_id):
+    try:
+        df = preparar_df_kpi(kpi_config, definiciones, chain_id)
+
+        # Aquí va cualquier lógica específica de 'stock_tuberia'
+
+        finalizar_etl_kpi(df, kpi_config["kpi"], date, chain_id, definiciones, data_type_id)
+    except Exception as e:
+        print(f"[Error en KPI 'sellout']: {e}")
+
+def procesar_sellin(kpi_config, chain_id, date, definiciones, data_type_id):
+    try:
+        df = preparar_df_kpi(kpi_config, definiciones, chain_id)
+
+        # Aquí va cualquier lógica específica de 'sellin'
+
+        finalizar_etl_kpi(df, kpi_config["kpi"], date, chain_id, definiciones, data_type_id)
+    except Exception as e:
+        print(f"[Error en KPI 'sellout']: {e}")
+
+def procesar_fillrate(kpi_config, chain_id, date, definiciones, data_type_id):
+    try:
+        df = preparar_df_kpi(kpi_config, definiciones, chain_id)
+
+        # Aquí va cualquier lógica específica de 'fillrate'
+
+        finalizar_etl_kpi(df, kpi_config["kpi"], date, chain_id, definiciones, data_type_id)
+    except Exception as e:
+        print(f"[Error en KPI 'sellout']: {e}")
+
+def procesar_forecast(kpi_config, chain_id, date, definiciones, data_type_id):
+    try:
+        df = preparar_df_kpi(kpi_config, definiciones, chain_id)
+
+        # Aquí va cualquier lógica específica de 'forecast'
+
+        finalizar_etl_kpi(df, kpi_config["kpi"], date, chain_id, definiciones, data_type_id)
+    except Exception as e:
+        print(f"[Error en KPI 'sellout']: {e}")
+
+def procesar_kpi(kpi_config, chain_id, date, definiciones, data_type_id):
+    kpi = kpi_config["kpi"]
+    if kpi == "sellout":
+        procesar_sellout(kpi_config, chain_id, date, definiciones, data_type_id)
+    elif kpi == "stock_oh":
+        procesar_stock_oh(kpi_config, chain_id, date, definiciones, data_type_id)
+    elif kpi == "stock_tuberia":
+        procesar_stock_tuberia(kpi_config, chain_id, date, definiciones, data_type_id)
+    elif kpi == "sellin":
+        procesar_sellin(kpi_config, chain_id, date, definiciones, data_type_id)
+    elif kpi == "fillrate":
+        procesar_fillrate(kpi_config, chain_id, date, definiciones, data_type_id)
+    elif kpi == "forecast":
+        procesar_forecast(kpi_config, chain_id, date, definiciones, data_type_id)
+    else:
+        print(f"[Aviso] No hay función especializada para el KPI: {kpi}")
+
+# ========================
+# Punto de entrada
+# ========================
+
+def main(chain_id: int, date: int):
+    try:
+        definiciones = generic.get_kpi_definitions()
+        config = {{ config | tojson }}
+        for kpi_conf in config["kpis"]:
+            procesar_kpi(
+                kpi_config=kpi_conf,
+                chain_id=chain_id,
+                date=date,
+                definiciones=definiciones,
+                data_type_id=config["data_type_id"]
+            )
+    except Exception as e:
+        print(f"[Error general en ejecución] {e}")
+
+if __name__ == "__main__":
+    try:
+        script, chain_id, date = argv
+        main(int(chain_id), int(date))
+    except ValueError:
+        print("[Error] El parámetro chain_id debe ser un número entero.")
+    except Exception as e:
+        print(f"[Error al ejecutar el script] {e}")
