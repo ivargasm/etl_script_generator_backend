@@ -9,6 +9,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
+        "https://etl-script-generator-frontend.vercel.app"
     ],  # Orígenes permitidos (Frontend)
     # allow_origins=["*"],
     allow_credentials=True,
