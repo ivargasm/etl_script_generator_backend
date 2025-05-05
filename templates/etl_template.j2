@@ -27,7 +27,7 @@ def leer_archivos(directorio: str, prefijo: str, extension: str) -> List[str]:
         print(f"[Error] No se pudieron listar archivos en {directorio}: {e}")
         return []
 
-def cargar_datos_en_dataframe(directorio: str, archivos: List[str], extension: str, skiprows: int) -> pd.DataFrame:
+def cargar_datos_en_dataframe(directorio: str, archivos: List[str], extension: str, skiprows: int, separator: str, encoding: str) -> pd.DataFrame:
     dataframes = []
     for archivo in archivos:
         ruta_completa = os.path.join(directorio, archivo)
@@ -37,7 +37,7 @@ def cargar_datos_en_dataframe(directorio: str, archivos: List[str], extension: s
             elif extension == ".xls":
                 df = pd.read_excel(ruta_completa, engine='xlrd', skiprows=skiprows)
             else:
-                df = pd.read_csv(ruta_completa, sep="{{ config.separator }}", encoding="{{ config.encoding }}")
+                df = pd.read_csv(ruta_completa, sep=separator, encoding=encoding")
             dataframes.append(df)
             print(f"[OK] Archivo cargado: {archivo}")
         except Exception as e:
@@ -73,7 +73,7 @@ def preparar_df_kpi(kpi_config, definiciones, chain_id):
     if not archivos:
         raise FileNotFoundError(f"No se encontraron archivos para el KPI '{kpi_config['kpi']}'.")
 
-    df = cargar_datos_en_dataframe(DIRECTORIO_DEFECTO, archivos, kpi_config["extension"], kpi_config["skiprows"])
+    df = cargar_datos_en_dataframe(DIRECTORIO_DEFECTO, archivos, kpi_config["extension"], kpi_config["skiprows"], kpi_config["separator"], kpi_config["encoding"])
     if df.empty:
         raise ValueError(f"El DataFrame para '{kpi_config['kpi']}' está vacío.")
 
