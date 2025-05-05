@@ -37,7 +37,7 @@ def cargar_datos_en_dataframe(directorio: str, archivos: List[str], extension: s
             elif extension == ".xls":
                 df = pd.read_excel(ruta_completa, engine='xlrd', skiprows=skiprows)
             else:
-                df = pd.read_csv(ruta_completa, sep=separator, encoding=encoding")
+                df = pd.read_csv(ruta_completa, sep=separator, encoding=encoding)
             dataframes.append(df)
             print(f"[OK] Archivo cargado: {archivo}")
         except Exception as e:
