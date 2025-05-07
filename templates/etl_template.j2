@@ -86,6 +86,11 @@ def finalizar_etl_kpi(df, kpi: str, date: int, chain_id: int, definiciones, defa
     if "date_id" in df.columns:
         df["date_id"] = df["date_id"].apply(lambda x: generic.format_date(x, "%Y%m%d"))
 
+    # limpieza de caracteres
+    df = generic.remove_special_caracter(df, ["product_dsc", "place_dsc"])
+    df["product_dsc"] = df["product_dsc"].apply(generic.clean_text)
+    df["place_dsc"] = df["place_dsc"].apply(generic.clean_text)
+
     columnas_ordenadas = [col["col"] for col in sorted(definiciones.get(kpi, []), key=lambda x: x["order"])]
     columnas_salida = [col for col in columnas_ordenadas if col in df.columns]
 
