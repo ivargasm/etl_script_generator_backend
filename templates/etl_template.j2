@@ -81,7 +81,7 @@ def preparar_df_kpi(kpi_config, definiciones, chain_id):
     df.rename(columns=kpi_config["rename_map"], inplace=True)
     return df
 
-def finalizar_etl_kpi(df, kpi: str, date: int, chain_id: int, definiciones, clean_fields: [], default_data_type_id: str = "16"):
+def finalizar_etl_kpi(df, kpi: str, date: int, chain_id: int, definiciones, clean_fields: List[str], default_data_type_id: str = "16"):
     df = agregar_columnas_faltantes(df, kpi, definiciones, default_data_type_id, chain_id)
     if "date_id" in df.columns:
         df["date_id"] = df["date_id"].apply(lambda x: generic.format_date(x, "%Y%m%d"))
