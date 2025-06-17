@@ -104,80 +104,24 @@ def finalizar_etl_kpi(df, kpi: str, date: int, chain_id: int, definiciones, clea
 # Procesamiento por KPI
 # ========================
 
-def procesar_sellout(kpi_config, chain_id, date, definiciones, data_type_id):
+{% for kpi_conf in config.kpis %}
+def procesar_{{ kpi_conf.kpi }}(kpi_config, chain_id, date, definiciones, data_type_id):
     try:
         df = preparar_df_kpi(kpi_config, definiciones, chain_id)
 
-        # Aquí va cualquier lógica específica de 'sellout'
+        # Aquí va cualquier lógica específica de '{{ kpi_conf.kpi }}'
 
         finalizar_etl_kpi(df, kpi_config["kpi"], date, chain_id, definiciones, kpi_config["clean_fields"], data_type_id)
     except Exception as e:
-        print(f"[Error en KPI 'sellout']: {e}")
-
-def procesar_stock_oh(kpi_config, chain_id, date, definiciones, data_type_id):
-    try:
-        df = preparar_df_kpi(kpi_config, definiciones, chain_id)
-
-        # Aquí va cualquier lógica específica de 'stock_oh'
-
-        finalizar_etl_kpi(df, kpi_config["kpi"], date, chain_id, definiciones, kpi_config["clean_fields"], data_type_id)
-    except Exception as e:
-        print(f"[Error en KPI 'stock_oh']: {e}")
-
-def procesar_stock_tuberia(kpi_config, chain_id, date, definiciones, data_type_id):
-    try:
-        df = preparar_df_kpi(kpi_config, definiciones, chain_id)
-
-        # Aquí va cualquier lógica específica de 'stock_tuberia'
-
-        finalizar_etl_kpi(df, kpi_config["kpi"], date, chain_id, definiciones, kpi_config["clean_fields"], data_type_id)
-    except Exception as e:
-        print(f"[Error en KPI 'sellout']: {e}")
-
-def procesar_sellin(kpi_config, chain_id, date, definiciones, data_type_id):
-    try:
-        df = preparar_df_kpi(kpi_config, definiciones, chain_id)
-
-        # Aquí va cualquier lógica específica de 'sellin'
-
-        finalizar_etl_kpi(df, kpi_config["kpi"], date, chain_id, definiciones, kpi_config["clean_fields"], data_type_id)
-    except Exception as e:
-        print(f"[Error en KPI 'sellout']: {e}")
-
-def procesar_fillrate(kpi_config, chain_id, date, definiciones, data_type_id):
-    try:
-        df = preparar_df_kpi(kpi_config, definiciones, chain_id)
-
-        # Aquí va cualquier lógica específica de 'fillrate'
-
-        finalizar_etl_kpi(df, kpi_config["kpi"], date, chain_id, definiciones, kpi_config["clean_fields"], data_type_id)
-    except Exception as e:
-        print(f"[Error en KPI 'sellout']: {e}")
-
-def procesar_forecast(kpi_config, chain_id, date, definiciones, data_type_id):
-    try:
-        df = preparar_df_kpi(kpi_config, definiciones, chain_id)
-
-        # Aquí va cualquier lógica específica de 'forecast'
-
-        finalizar_etl_kpi(df, kpi_config["kpi"], date, chain_id, definiciones, kpi_config["clean_fields"], data_type_id)
-    except Exception as e:
-        print(f"[Error en KPI 'sellout']: {e}")
+        print(f"[Error en KPI '{{ kpi_conf.kpi }}']: {e}")
+{% endfor %}
 
 def procesar_kpi(kpi_config, chain_id, date, definiciones, data_type_id):
     kpi = kpi_config["kpi"]
-    if kpi == "sellout":
-        procesar_sellout(kpi_config, chain_id, date, definiciones, data_type_id)
-    elif kpi == "stock_oh":
-        procesar_stock_oh(kpi_config, chain_id, date, definiciones, data_type_id)
-    elif kpi == "stock_tuberia":
-        procesar_stock_tuberia(kpi_config, chain_id, date, definiciones, data_type_id)
-    elif kpi == "sellin":
-        procesar_sellin(kpi_config, chain_id, date, definiciones, data_type_id)
-    elif kpi == "fillrate":
-        procesar_fillrate(kpi_config, chain_id, date, definiciones, data_type_id)
-    elif kpi == "forecast":
-        procesar_forecast(kpi_config, chain_id, date, definiciones, data_type_id)
+    {% for kpi_conf in config.kpis %}
+    if kpi == "{{ kpi_conf.kpi }}":
+        procesar_{{ kpi_conf.kpi }}(kpi_config, chain_id, date, definiciones, data_type_id)
+    {% endfor %}
     else:
         print(f"[Aviso] No hay función especializada para el KPI: {kpi}")
 
