@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import timedelta, datetime
 import json
 import os
 from sys import argv
@@ -27,15 +27,15 @@ def leer_archivos(directorio: str, prefijo: str, extension: str) -> List[str]:
         print(f"[Error] No se pudieron listar archivos en {directorio}: {e}")
         return []
 
-def cargar_datos_en_dataframe(directorio: str, archivos: List[str], extension: str, skiprows: int, separator: str, encoding: str) -> pd.DataFrame:
+def cargar_datos_en_dataframe(directorio: str, archivos: List[str], extension: str, skiprows: int, separator: str, encoding: str, sheet_name: str) -> pd.DataFrame:
     dataframes = []
     for archivo in archivos:
         ruta_completa = os.path.join(directorio, archivo)
         try:
             if extension == ".xlsx":
-                df = pd.read_excel(ruta_completa, engine='openpyxl', skiprows=skiprows)
+                df = pd.read_excel(ruta_completa, engine='openpyxl', skiprows=skiprows, sheet_name=sheet_name)
             elif extension == ".xls":
-                df = pd.read_excel(ruta_completa, engine='xlrd', skiprows=skiprows)
+                df = pd.read_excel(ruta_completa, engine='xlrd', skiprows=skiprows, sheet_name=sheet_name)
             else:
                 df = pd.read_csv(ruta_completa, sep=separator, encoding=encoding)
             dataframes.append(df)
@@ -51,6 +51,42 @@ def validar_columnas_archivo_original(df, columnas_requeridas: List[str]):
     faltantes = [col for col in columnas_requeridas if col not in df.columns]
     if faltantes:
         raise ValueError(f"[Error] El archivo original no contiene las siguientes columnas requeridas: {', '.join(faltantes)}")
+
+def convertir_fecha_excel(fecha_valor, formato_usuario):
+    """
+    Convierte fechas de Excel manejando tanto datetime objects como strings
+    """
+    if pd.isna(fecha_valor) or fecha_valor == '' or str(fecha_valor).strip() == '':
+        return None
+    
+    # Si es string, convertir según el formato del usuario
+    formato_map = generic.parse_date_format(formato_usuario)
+
+    # Si ya es un datetime/timestamp (Excel lo convirtió automáticamente)
+    if isinstance(fecha_valor, (pd.Timestamp, datetime)):
+        return fecha_valor.strftime(formato_map['strptime_format'])
+    
+    fecha_str = str(fecha_valor).strip()
+    
+    # Si la fecha string ya contiene timestamp (ej: "2025-05-31 00:00:00")
+    if ' ' in fecha_str and len(fecha_str) > 10:
+        try:
+            fecha_obj = pd.to_datetime(fecha_str)
+            return fecha_obj.strftime(formato_map['strptime_format'])
+        except Exception as e:
+            print(f"[Error] No se pudo parsear timestamp: {e}")
+    
+    # Convertir según formato especificado por usuario
+    if formato_usuario in formato_map['original_format']:
+        try:
+            fecha_obj = datetime.strptime(fecha_str, formato_map['strptime_format'])
+            return fecha_obj.strftime(formato_map['strptime_format'])
+        except ValueError as e:
+            print(f"[Error] No se pudo convertir la fecha '{fecha_str}' con el formato '{formato_usuario}': {e}")
+            return None
+    else:
+        print(f"[Error] Formato '{formato_usuario}' no reconocido")
+        return None
 
 def agregar_columnas_faltantes(df, kpi: str, definiciones, default_data_type_id="16", chain_id_value=None):
     if "item_nbr" in df.columns and "upc" not in df.columns:
@@ -73,7 +109,7 @@ def preparar_df_kpi(kpi_config, definiciones, chain_id):
     if not archivos:
         raise FileNotFoundError(f"No se encontraron archivos para el KPI '{kpi_config['kpi']}'.")
 
-    df = cargar_datos_en_dataframe(DIRECTORIO_DEFECTO, archivos, kpi_config["extension"], kpi_config["skiprows"], kpi_config["separator"], kpi_config["encoding"])
+    df = cargar_datos_en_dataframe(DIRECTORIO_DEFECTO, archivos, kpi_config["extension"], kpi_config["skiprows"], kpi_config["separator"], kpi_config["encoding"], kpi_config["sheet_name"])
     if df.empty:
         raise ValueError(f"El DataFrame para '{kpi_config['kpi']}' está vacío.")
 
@@ -81,10 +117,15 @@ def preparar_df_kpi(kpi_config, definiciones, chain_id):
     df.rename(columns=kpi_config["rename_map"], inplace=True)
     return df
 
-def finalizar_etl_kpi(df, kpi: str, date: int, chain_id: int, definiciones, clean_fields: List[str], default_data_type_id: str = "16"):
+def finalizar_etl_kpi(df, kpi: str, date: int, chain_id: int, definiciones, clean_fields: List[str], default_data_type_id: str = "16", date_format_example: str = "%Y%m%d", extension = None):
     df = agregar_columnas_faltantes(df, kpi, definiciones, default_data_type_id, chain_id)
+
+    if extension == ".xlsx" or extension == ".xls":
+        df['date_id'] = df['date_id'].apply(lambda x: convertir_fecha_excel(x, date_format_example))
+
+    # convertir fecha
     if "date_id" in df.columns:
-        df["date_id"] = df["date_id"].apply(lambda x: generic.format_date(x, "%Y%m%d"))
+        df = generic.standardize_date_format(df, 'date_id', date_format_example)
 
     # limpieza de caracteres
     df = generic.remove_special_caracter(df, clean_fields)
@@ -111,7 +152,7 @@ def procesar_{{ kpi_conf.kpi }}(kpi_config, chain_id, date, definiciones, data_t
 
         # Aquí va cualquier lógica específica de '{{ kpi_conf.kpi }}'
 
-        finalizar_etl_kpi(df, kpi_config["kpi"], date, chain_id, definiciones, kpi_config["clean_fields"], data_type_id)
+        finalizar_etl_kpi(df, kpi_config["kpi"], date, chain_id, definiciones, kpi_config["clean_fields"], data_type_id, kpi_config["date_format_example"], kpi_config["extension"])
     except Exception as e:
         print(f"[Error en KPI '{{ kpi_conf.kpi }}']: {e}")
 {% endfor %}
@@ -122,8 +163,6 @@ def procesar_kpi(kpi_config, chain_id, date, definiciones, data_type_id):
     if kpi == "{{ kpi_conf.kpi }}":
         procesar_{{ kpi_conf.kpi }}(kpi_config, chain_id, date, definiciones, data_type_id)
     {% endfor %}
-    else:
-        print(f"[Aviso] No hay función especializada para el KPI: {kpi}")
 
 # ========================
 # Punto de entrada
