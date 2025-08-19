@@ -27,17 +27,22 @@ def leer_archivos(directorio: str, prefijo: str, extension: str) -> List[str]:
         print(f"[Error] No se pudieron listar archivos en {directorio}: {e}")
         return []
 
-def cargar_datos_en_dataframe(directorio: str, archivos: List[str], extension: str, skiprows: int, separator: str, encoding: str, sheet_name: str) -> pd.DataFrame:
+def cargar_datos_en_dataframe(directorio: str, archivos: List[str], extension: str, skiprows: int, separator: str, encoding: str, sheet_name: str, has_headers: bool = True, manual_headers: List[str] = None) -> pd.DataFrame:
     dataframes = []
     for archivo in archivos:
         ruta_completa = os.path.join(directorio, archivo)
         try:
             if extension == ".xlsx":
-                df = pd.read_excel(ruta_completa, engine='openpyxl', skiprows=skiprows, sheet_name=sheet_name)
+                df = pd.read_excel(ruta_completa, engine='openpyxl', skiprows=skiprows, sheet_name=sheet_name, header=0 if has_headers else None)
             elif extension == ".xls":
-                df = pd.read_excel(ruta_completa, engine='xlrd', skiprows=skiprows, sheet_name=sheet_name)
+                df = pd.read_excel(ruta_completa, engine='xlrd', skiprows=skiprows, sheet_name=sheet_name, header=0 if has_headers else None)
             else:
-                df = pd.read_csv(ruta_completa, sep=separator, encoding=encoding)
+                df = pd.read_csv(ruta_completa, sep=separator, encoding=encoding, header=0 if has_headers else None)
+            
+            # Si no hay headers, asignar los headers manuales
+            if not has_headers and manual_headers:
+                df.columns = manual_headers
+            
             dataframes.append(df)
             print(f"[OK] Archivo cargado: {archivo}")
         except Exception as e:
@@ -109,7 +114,11 @@ def preparar_df_kpi(kpi_config, definiciones, chain_id):
     if not archivos:
         raise FileNotFoundError(f"No se encontraron archivos para el KPI '{kpi_config['kpi']}'.")
 
-    df = cargar_datos_en_dataframe(DIRECTORIO_DEFECTO, archivos, kpi_config["extension"], kpi_config["skiprows"], kpi_config["separator"], kpi_config["encoding"], kpi_config["sheet_name"])
+    has_headers_raw = kpi_config.get("has_headers", True)
+    has_headers = has_headers_raw if isinstance(has_headers_raw, bool) else str(has_headers_raw).lower() == "true"
+    manual_headers = kpi_config.get("manual_headers", [])
+    
+    df = cargar_datos_en_dataframe(DIRECTORIO_DEFECTO, archivos, kpi_config["extension"], kpi_config["skiprows"], kpi_config["separator"], kpi_config["encoding"], kpi_config["sheet_name"], has_headers, manual_headers)
     if df.empty:
         raise ValueError(f"El DataFrame para '{kpi_config['kpi']}' está vacío.")
 
