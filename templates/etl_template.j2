@@ -126,7 +126,7 @@ def preparar_df_kpi(kpi_config, definiciones, chain_id):
     df.rename(columns=kpi_config["rename_map"], inplace=True)
     return df
 
-def finalizar_etl_kpi(df, kpi: str, date: int, chain_id: int, definiciones, clean_fields: List[str], default_data_type_id: str = "16", date_format_example: str = "%Y%m%d", extension = None):
+def finalizar_etl_kpi(df, kpi: str, date: int, chain_id: int, definiciones, clean_fields: List[str], default_data_type_id: str = "16", date_format_example: str = "%Y%m%d", extension = None, aurora_engine = None, redshift_engine = None, project_id = None):
     df = agregar_columnas_faltantes(df, kpi, definiciones, default_data_type_id, chain_id)
 
     if extension == ".xlsx" or extension == ".xls":
@@ -155,48 +155,77 @@ def finalizar_etl_kpi(df, kpi: str, date: int, chain_id: int, definiciones, clea
 # ========================
 
 {% for kpi_conf in config.kpis %}
-def procesar_{{ kpi_conf.kpi }}(kpi_config, chain_id, date, definiciones, data_type_id):
+def procesar_{{ kpi_conf.kpi }}(kpi_config, chain_id, date, definiciones, data_type_id, aurora_engine=None, redshift_engine=None, project_id=None):
     try:
         df = preparar_df_kpi(kpi_config, definiciones, chain_id)
 
         # Aquí va cualquier lógica específica de '{{ kpi_conf.kpi }}'
 
-        finalizar_etl_kpi(df, kpi_config["kpi"], date, chain_id, definiciones, kpi_config["clean_fields"], data_type_id, kpi_config["date_format_example"], kpi_config["extension"])
+        finalizar_etl_kpi(df, kpi_config["kpi"], date, chain_id, definiciones, kpi_config["clean_fields"], data_type_id, kpi_config["date_format_example"], kpi_config["extension"], aurora_engine, redshift_engine, project_id)
     except Exception as e:
         print(f"[Error en KPI '{{ kpi_conf.kpi }}']: {e}")
 {% endfor %}
 
-def procesar_kpi(kpi_config, chain_id, date, definiciones, data_type_id):
+def procesar_kpi(kpi_config, chain_id, date, definiciones, data_type_id, aurora_engine=None, redshift_engine=None, project_id=None):
     kpi = kpi_config["kpi"]
     {% for kpi_conf in config.kpis %}
     if kpi == "{{ kpi_conf.kpi }}":
-        procesar_{{ kpi_conf.kpi }}(kpi_config, chain_id, date, definiciones, data_type_id)
+        procesar_{{ kpi_conf.kpi }}(kpi_config, chain_id, date, definiciones, data_type_id, aurora_engine, redshift_engine, project_id)
     {% endfor %}
 
 # ========================
 # Punto de entrada
 # ========================
 
-def main(chain_id: int, date: int):
+def main(chain_id: int, date: int, project_id: int = None):
     try:
         definiciones = generic.get_kpi_definitions()
         config = {{ config | tojson }}
+        
+        # Configuración de base de datos
+        db_config = config.get("database_config", {})
+        db_enabled = str(db_config.get("enabled", "False")).lower() == "true"
+        aurora_enabled = str(db_config.get("aurora", "False")).lower() == "true"
+        redshift_enabled = str(db_config.get("redshift", "False")).lower() == "true"
+        
+        aurora_engine = None
+        redshift_engine = None
+        
+        if db_enabled and project_id:
+            if aurora_enabled or redshift_enabled:
+                aurora_engine, redshift_engine, _, _, _, _, _ = generic.get_connections(project_id)
+                if not aurora_enabled:
+                    aurora_engine = None
+                if not redshift_enabled:
+                    redshift_engine = None
+        
         for kpi_conf in config["kpis"]:
             procesar_kpi(
                 kpi_config=kpi_conf,
                 chain_id=chain_id,
                 date=date,
                 definiciones=definiciones,
-                data_type_id=config["data_type_id"]
+                data_type_id=config["data_type_id"],
+                aurora_engine=aurora_engine,
+                redshift_engine=redshift_engine,
+                project_id=project_id
             )
     except Exception as e:
         print(f"[Error general en ejecución] {e}")
 
 if __name__ == "__main__":
     try:
-        script, chain_id, date = argv
-        main(int(chain_id), int(date))
-    except ValueError:
-        print("[Error] El parámetro chain_id debe ser un número entero.")
+        if len(argv) < 4:
+            print("[Error] Se requieren 3 parámetros: chain_id, date y project_id")
+            print("Uso: python script.py <chain_id> <date> <project_id> [otros_parametros...]")
+        else:
+            chain_id = int(argv[1])
+            date = int(argv[2])
+            project_id = int(argv[3])
+            
+            # Los argumentos adicionales quedan disponibles en argv[4:] para uso personalizado
+            main(chain_id, date, project_id)
+    except ValueError as e:
+        print(f"[Error] Los parámetros chain_id, date y project_id deben ser números enteros: {e}")
     except Exception as e:
         print(f"[Error al ejecutar el script] {e}")
