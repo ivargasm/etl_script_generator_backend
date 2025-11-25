@@ -5,6 +5,7 @@ from sys import argv
 from typing import List, Dict, Any
 import pandas as pd
 import glob
+import logging
 
 # Importación de funciones ETL genéricas personalizadas
 import funciones_genericas_etl as generic  # type: ignore
@@ -15,6 +16,42 @@ import funciones_genericas_etl as generic  # type: ignore
 
 DIRECTORIO_DEFECTO = os.path.dirname(os.path.abspath(__file__))
 
+# Configuración del Logger
+def setup_logger(date_str: str):
+    """
+    Configura un sistema de logging robusto que escribe en consola y en archivo.
+    """
+    log_filename = f"etl_log_{date_str}.log"
+    
+    # Crear logger personalizado
+    logger = logging.getLogger("ETL_Logger")
+    logger.setLevel(logging.DEBUG)
+    
+    # Evitar duplicar handlers si la función se llama múltiples veces
+    if logger.hasHandlers():
+        logger.handlers.clear()
+
+    # Formato del log: Timestamp - Nivel - Mensaje
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+
+    # Handler de Archivo
+    file_handler = logging.FileHandler(log_filename, encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+
+    # Handler de Consola
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    
+    return logger
+
+# Inicializamos una variable global para el logger (se configurará en el main)
+logger = logging.getLogger("ETL_Logger")
+
 # ========================
 # Funciones utilitarias
 # ========================
@@ -22,9 +59,10 @@ DIRECTORIO_DEFECTO = os.path.dirname(os.path.abspath(__file__))
 def leer_archivos(directorio: str, prefijo: str, extension: str) -> List[str]:
     try:
         archivos = glob.glob(f"{directorio}/*{prefijo}*{extension}")
+        logger.info(f"Archivos encontrados para prefijo '{prefijo}': {len(archivos)}")
         return archivos
     except Exception as e:
-        print(f"[Error] No se pudieron listar archivos en {directorio}: {e}")
+        logger.error(f"No se pudieron listar archivos en {directorio}: {e}", exc_info=True)
         return []
 
 def cargar_datos_en_dataframe(directorio: str, archivos: List[str], extension: str, skiprows: int, separator: str, encoding: str, sheet_name: str, has_headers: bool = True, manual_headers: List[str] = None) -> pd.DataFrame:
@@ -44,18 +82,20 @@ def cargar_datos_en_dataframe(directorio: str, archivos: List[str], extension: s
                 df.columns = manual_headers
             
             dataframes.append(df)
-            print(f"[OK] Archivo cargado: {archivo}")
+            logger.info(f"Archivo cargado exitosamente: {archivo} ({len(df)} filas)")
         except Exception as e:
-            print(f"[Error] Falló la carga del archivo {archivo}: {e}")
+            logger.error(f"Falló la carga del archivo {archivo}: {e}", exc_info=True)
     if not dataframes:
-        print("[Advertencia] No se cargó ningún archivo correctamente.")
+        logger.warning("No se cargó ningún archivo correctamente.")
         return pd.DataFrame()
     return pd.concat(dataframes, ignore_index=True)
 
 def validar_columnas_archivo_original(df, columnas_requeridas: List[str]):
     faltantes = [col for col in columnas_requeridas if col not in df.columns]
     if faltantes:
-        raise ValueError(f"[Error] El archivo original no contiene las siguientes columnas requeridas: {', '.join(faltantes)}")
+        error_msg = f"El archivo original no contiene las columnas requeridas: {', '.join(faltantes)}"
+        logger.critical(error_msg)
+        raise ValueError(error_msg)
 
 def convertir_fecha_excel(fecha_valor, formato_usuario):
     """
@@ -112,6 +152,7 @@ def agregar_columnas_faltantes(df, kpi: str, definiciones, default_data_type_id=
 def preparar_df_kpi(kpi_config, definiciones, chain_id):
     archivos = leer_archivos(DIRECTORIO_DEFECTO, kpi_config["file_prefix"], kpi_config["extension"])
     if not archivos:
+        logger.error(f"No se encontraron archivos para el KPI '{kpi_config['kpi']}'.")
         raise FileNotFoundError(f"No se encontraron archivos para el KPI '{kpi_config['kpi']}'.")
 
     has_headers_raw = kpi_config.get("has_headers", True)
@@ -120,6 +161,7 @@ def preparar_df_kpi(kpi_config, definiciones, chain_id):
     
     df = cargar_datos_en_dataframe(DIRECTORIO_DEFECTO, archivos, kpi_config["extension"], kpi_config["skiprows"], kpi_config["separator"], kpi_config["encoding"], kpi_config["sheet_name"], has_headers, manual_headers)
     if df.empty:
+        logger.error(f"El DataFrame para el KPI '{kpi_config['kpi']}' está vacío después de la carga.")
         raise ValueError(f"El DataFrame para '{kpi_config['kpi']}' está vacío.")
 
     validar_columnas_archivo_original(df, kpi_config["original_required_columns"])
@@ -148,7 +190,7 @@ def finalizar_etl_kpi(df, kpi: str, date: int, chain_id: int, definiciones, clea
     df_kpi = df[columnas_salida].copy()
     output_file = f"{kpi}_{date}.txt"
     df_kpi.to_csv(output_file, sep="\t", index=False)
-    print(f"[OK] Archivo generado: {output_file} con {{ '{ len(df_kpi) }' }} registros")
+    logger.info(f"Archivo final generado exitosamente: {output_file} con {len(df_kpi)} registros")
 
 # ========================
 # Procesamiento por KPI
@@ -178,6 +220,11 @@ def procesar_kpi(kpi_config, chain_id, date, definiciones, data_type_id, aurora_
 # ========================
 
 def main(chain_id: int, date: int, project_id: int = None):
+    # Configurar logging al inicio
+    global logger
+    logger = setup_logger(str(date))
+    
+    logger.info(f"Iniciando ejecución ETL. ChainID: {chain_id}, Date: {date}, ProjectID: {project_id}")
     try:
         definiciones = generic.get_kpi_definitions()
         config = {{ config | tojson }}
@@ -192,12 +239,17 @@ def main(chain_id: int, date: int, project_id: int = None):
         redshift_engine = None
         
         if db_enabled and project_id:
-            if aurora_enabled or redshift_enabled:
-                aurora_engine, redshift_engine, _, _, _, _, _ = generic.get_connections(project_id)
-                if not aurora_enabled:
-                    aurora_engine = None
-                if not redshift_enabled:
-                    redshift_engine = None
+            try:
+                if aurora_enabled or redshift_enabled:
+                    aurora_engine, redshift_engine, _, _, _, _, _ = generic.get_connections(project_id)
+                    if not aurora_enabled:
+                        aurora_engine = None
+                    if not redshift_enabled:
+                        redshift_engine = None
+
+                    logger.info("Conexiones a base de datos establecidas.")
+            except Exception as e:
+                logger.error(f"Error conectando a BD: {db_err}", exc_info=True)
         
         for kpi_conf in config["kpis"]:
             procesar_kpi(
@@ -211,7 +263,7 @@ def main(chain_id: int, date: int, project_id: int = None):
                 project_id=project_id
             )
     except Exception as e:
-        print(f"[Error general en ejecución] {e}")
+        logger.critical(f"Fallo irrecuperable en main: {e}", exc_info=True)
 
 if __name__ == "__main__":
     try:
