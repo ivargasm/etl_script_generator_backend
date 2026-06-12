@@ -81,6 +81,7 @@ def cargar_datos_en_dataframe(directorio: str, archivos: List[str], extension: s
             if not has_headers and manual_headers:
                 df.columns = manual_headers
             
+            df['_source_filename'] = os.path.basename(archivo)
             dataframes.append(df)
             logger.info(f"Archivo cargado exitosamente: {archivo} ({len(df)} filas)")
         except Exception as e:
@@ -166,6 +167,18 @@ def preparar_df_kpi(kpi_config, definiciones, chain_id):
 
     validar_columnas_archivo_original(df, kpi_config["original_required_columns"])
     df.rename(columns=kpi_config["rename_map"], inplace=True)
+
+    if str(kpi_config.get("extract_date_from_filename", "False")).lower() == "true" and kpi_config.get("filename_date_regex"):
+        import re
+        regex = kpi_config["filename_date_regex"]
+        def extract_date(filename):
+            match = re.search(regex, filename)
+            return match.group(1) if match else None
+        
+        if '_source_filename' in df.columns:
+            df['date_id'] = df['_source_filename'].apply(extract_date)
+            logger.info(f"Fecha extraída de los nombres de archivo usando regex: {regex}")
+
     return df
 
 def finalizar_etl_kpi(df, kpi: str, date: int, chain_id: int, definiciones, clean_fields: List[str], default_data_type_id: str = "16", date_format_example: str = "%Y%m%d", extension = None, aurora_engine = None, redshift_engine = None, project_id = None):
@@ -249,7 +262,7 @@ def main(chain_id: int, date: int, project_id: int = None):
 
                     logger.info("Conexiones a base de datos establecidas.")
             except Exception as e:
-                logger.error(f"Error conectando a BD: {db_err}", exc_info=True)
+                logger.error(f"Error conectando a BD: {e}", exc_info=True)
         
         for kpi_conf in config["kpis"]:
             procesar_kpi(
