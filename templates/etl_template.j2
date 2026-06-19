@@ -98,6 +98,27 @@ def validar_columnas_archivo_original(df, columnas_requeridas: List[str]):
         logger.critical(error_msg)
         raise ValueError(error_msg)
 
+def extraer_fecha_de_nombres_archivos(df: pd.DataFrame, regex: str) -> pd.DataFrame:
+    """
+    Extrae la fecha del nombre de archivo original usando una expresión regular
+    y la asigna a la columna date_id de manera eficiente.
+    """
+    if '_source_filename' not in df.columns:
+        return df
+
+    import re
+    def extract_date(filename):
+        match = re.search(regex, filename)
+        return match.group(1) if match else None
+
+    # Optimización: aplicar regex solo a nombres de archivo únicos para evitar lentitud con millones de filas
+    unique_filenames = df['_source_filename'].unique()
+    filename_to_date = {fname: extract_date(fname) for fname in unique_filenames}
+    df['date_id'] = df['_source_filename'].map(filename_to_date)
+    logger.info(f"Fecha extraída de los nombres de archivo usando regex: {regex}")
+    
+    return df
+
 def convertir_fecha_excel(fecha_valor, formato_usuario):
     """
     Convierte fechas de Excel manejando tanto datetime objects como strings
@@ -169,15 +190,10 @@ def preparar_df_kpi(kpi_config, definiciones, chain_id):
     df.rename(columns=kpi_config["rename_map"], inplace=True)
 
     if str(kpi_config.get("extract_date_from_filename", "False")).lower() == "true" and kpi_config.get("filename_date_regex"):
-        import re
-        regex = kpi_config["filename_date_regex"]
-        def extract_date(filename):
-            match = re.search(regex, filename)
-            return match.group(1) if match else None
-        
-        if '_source_filename' in df.columns:
-            df['date_id'] = df['_source_filename'].apply(extract_date)
-            logger.info(f"Fecha extraída de los nombres de archivo usando regex: {regex}")
+        df = extraer_fecha_de_nombres_archivos(df, kpi_config["filename_date_regex"])
+
+    if '_source_filename' in df.columns:
+        df.drop(columns=['_source_filename'], inplace=True)
 
     return df
 
